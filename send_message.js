@@ -91,6 +91,7 @@ module.exports = {
     "editMessageVarName",
     "storage",
     "varName2",
+    "branch",
   ],
 
   //---------------------------------------------------------------------
@@ -133,14 +134,14 @@ module.exports = {
 
 
   <tab label="Message" icon="align left">
-    <div style="padding: 8px;">
+    <div style="padding: 8px; max-height: calc(100vh - 250px); overflow-y: auto;">
       <textarea id="message" class="dbm_monospace" rows="10" placeholder="Insert message here..." style="height: calc(100vh - 309px); white-space: nowrap; resize: none;"></textarea>
     </div>
   </tab>
 
 
   <tab label="Embeds" icon="book image">
-    <div style="padding: 8px;">
+    <div style="padding: 8px; max-height: calc(100vh - 250px); overflow-y: auto;">
 
       <dialog-list id="embeds" fields='["title", "url", "color", "timestamp", "imageUrl", "thumbUrl", "description", "fields", "author", "authorUrl", "authorIcon", "footerText", "footerIconUrl"]' dialogTitle="Embed Info" dialogWidth="540" dialogHeight="460" listLabel="Embeds" listStyle="height: calc(100vh - 350px);" itemName="Embed" itemCols="1" itemHeight="30px;" itemTextFunction="data.title + ' - ' + data.description" itemStyle="text-align: left; line-height: 30px;">
         <div style="padding: 16px 16px 0px 16px;">
@@ -260,7 +261,7 @@ module.exports = {
 
 
   <tab label="Buttons" icon="clone">
-    <div style="padding: 8px;">
+    <div style="padding: 8px; max-height: calc(100vh - 250px); overflow-y: auto;">
 
       <dialog-list id="buttons" fields='["name", "type", "id", "row", "url", "emoji", "disabled", "mode", "authorOnly", "time", "actions"]' dialogTitle="Button Info" dialogWidth="600" dialogHeight="700" listLabel="Buttons" listStyle="height: calc(100vh - 350px);" itemName="Button" itemCols="4" itemHeight="40px;" itemTextFunction="data.name" itemStyle="text-align: center; line-height: 40px;">
         <div style="padding: 16px;">
@@ -337,7 +338,7 @@ module.exports = {
 
 
   <tab label="Selects" icon="list alternate">
-    <div style="padding: 8px;">
+    <div style="padding: 8px; max-height: calc(100vh - 250px); overflow-y: auto;">
 
       <dialog-list id="selectMenus" fields='["placeholder", "id", "tempVarName", "row", "min", "max", "mode", "authorOnly", "time", "options", "actions"]' dialogTitle="Select Menu Info" dialogWidth="800" dialogHeight="700" listLabel="Select Menus" listStyle="height: calc(100vh - 350px);" itemName="Select Menu" itemCols="1" itemHeight="40px;" itemTextFunction="data.placeholder + '<br>' + data.options" itemStyle="text-align: left; line-height: 40px;">
         <div style="padding: 16px;">
@@ -448,7 +449,7 @@ module.exports = {
 
 
   <tab label="Files" icon="file image">
-    <div style="padding: 8px;">
+    <div style="padding: 8px; max-height: calc(100vh - 250px); overflow-y: auto;">
 
       <dialog-list id="attachments" fields='["url", "name", "spoiler"]' dialogTitle="Attachment Info" dialogWidth="400" dialogHeight="280" listLabel="Files" listStyle="height: calc(100vh - 350px);" itemName="File" itemCols="1" itemHeight="30px;" itemTextFunction="data.url" itemStyle="text-align: left; line-height: 30px;">
         <div style="padding: 16px;">
@@ -472,7 +473,7 @@ module.exports = {
 
 
   <tab label="Settings" icon="cogs">
-    <div style="padding: 8px;">
+    <div style="padding: 8px; max-height: calc(100vh - 250px); overflow-y: auto;">
       <dbm-checkbox style="float: left;" id="reply" label="Reply to Interaction if Possible" checked></dbm-checkbox>
 
       <dbm-checkbox style="float: right;" id="ephemeral" label="Make Reply Private (Ephemeral)"></dbm-checkbox>
@@ -506,6 +507,15 @@ module.exports = {
       </div>
 
       <br><br>
+
+      <hr class="subtlebar" style="margin-top: 4px; margin-bottom: 4px;">
+
+      <br>
+
+      <div style="padding-top: 8px;">
+        <div style="font-weight: bold; font-size: 14px; margin-bottom: 8px;">If Message Failed</div>
+        <conditional-input id="branch" style="padding-top: 8px;"></conditional-input>
+      </div>
 
       <div></div>
     </div>
@@ -842,6 +852,8 @@ module.exports = {
         const varName2 = this.evalMessage(data.varName2, cache);
         const storage = parseInt(data.storage, 10);
         this.storeValue(resultMsg, storage, varName2, cache);
+        
+        // Execute next action normally since the message was successful
         this.callNextAction(cache);
 
         for (let i = 0; i < awaitResponses.length; i++) {
@@ -860,7 +872,12 @@ module.exports = {
           });
         }
       } else {
-        this.callNextAction(cache);
+        // Message failed (null or undefined)
+        if (data.branch) {
+          this.executeResults(true, data.branch, cache);
+        } else {
+          this.callNextAction(cache);
+        }
       }
     };
 
@@ -869,6 +886,23 @@ module.exports = {
     const sameId = target?.id?.length > 0 && (target?.id ?? "") === cache?.interaction?.channel?.id;
     const sameChannel = channel === 0 || sameId;
     const canReply = !isMessageTarget && cache?.interaction?.replied === false && sameChannel;
+
+    // Check if target is valid
+    if (!target && !data.dontSend) {
+      this.displayError(data, cache, "Send Message: Invalid target. Target is null or undefined.");
+      // Execute "If Message Failed" branch on error
+      if (data.branch) {
+        this.executeResults(true, data.branch, cache);
+      } else {
+        this.callNextAction(cache);
+      }
+      return;
+    }
+    
+    // Check if this is a DMChannel
+    const isDMChannel = target?.type === 'DM' || 
+                        (target?.constructor && target.constructor.name === 'DMChannel') ||
+                        (target?.constructor && target.constructor.name === 'User');
 
     if (data.dontSend) {
       const varName2 = this.evalMessage(data.varName2, cache);
@@ -879,7 +913,17 @@ module.exports = {
     }
 
     else if (Array.isArray(target)) {
-      this.callListFunc(target, "send", [messageOptions]).then(onComplete);
+      this.callListFunc(target, "send", [messageOptions])
+        .then(onComplete)
+        .catch((err) => {
+          this.displayError(data, cache, err);
+          // Execute "If Message Failed" branch on error
+          if (data.branch) {
+            this.executeResults(true, data.branch, cache);
+          } else {
+            this.callNextAction(cache);
+          }
+        });
     }
 
     else if (isEdit === 2) {
@@ -893,12 +937,27 @@ module.exports = {
         promise = cache.interaction.update(messageOptions);
       } else {
         this.displayError(data, cache, "Send Message -> Message/Options to Edit -> Interaction Update / Could not find interaction to edit");
+        // Execute "If Message Failed" branch when interaction can't be found
+        if (data.branch) {
+          this.executeResults(true, data.branch, cache);
+        } else {
+          this.callNextAction(cache);
+        }
+        return;
       }
       
       if (promise) {
         promise
           .then(onComplete)
-          .catch((err) => this.displayError(data, cache, err));
+          .catch((err) => {
+            this.displayError(data, cache, err);
+            // Execute "If Message Failed" branch on error
+            if (data.branch) {
+              this.executeResults(true, data.branch, cache);
+            } else {
+              this.callNextAction(cache);
+            }
+          });
       }
     }
 
@@ -906,14 +965,30 @@ module.exports = {
       target
         .edit(messageOptions)
         .then(onComplete)
-        .catch((err) => this.displayError(data, cache, err));
+        .catch((err) => {
+          this.displayError(data, cache, err);
+          // Execute "If Message Failed" branch on error
+          if (data.branch) {
+            this.executeResults(true, data.branch, cache);
+          } else {
+            this.callNextAction(cache);
+          }
+        });
     }
 
     else if (isMessageTarget && target?.reply) {
       target
         .reply(messageOptions)
         .then(onComplete)
-        .catch((err) => this.displayError(data, cache, err));
+        .catch((err) => {
+          this.displayError(data, cache, err);
+          // Execute "If Message Failed" branch on error
+          if (data.branch) {
+            this.executeResults(true, data.branch, cache);
+          } else {
+            this.callNextAction(cache);
+          }
+        });
     }
 
     else if (data.reply === true && canReply) {
@@ -927,18 +1002,77 @@ module.exports = {
       } else {
         promise = cache.interaction.reply(messageOptions);
       }
-      promise.then(onComplete).catch((err) => this.displayError(data, cache, err));
+      promise
+        .then(onComplete)
+        .catch((err) => {
+          this.displayError(data, cache, err);
+          // Execute "If Message Failed" branch on error
+          if (data.branch) {
+            this.executeResults(true, data.branch, cache);
+          } else {
+            this.callNextAction(cache);
+          }
+        });
     }
 
     else if (target?.send) {
-      target
-        .send(messageOptions)
+      // Create a promise that will be rejected if it takes too long (likely a DM failure)
+      const timeoutPromise = new Promise((resolve, reject) => {
+        if (isDMChannel) {
+          // For DM channels, set a short timeout as they can hang when blocked
+          setTimeout(() => reject(new Error('Cannot send messages to this user (timeout)')), 3000);
+        } else {
+          // For other channels, use a longer timeout
+          setTimeout(() => reject(new Error('Message sending timed out')), 10000);
+        }
+      });
+      
+      // Create the send promise with proper error handling
+      let originalError = null;
+      const sendPromise = target.send(messageOptions).catch(err => {
+        // Store the original error before rejecting
+        originalError = err;
+        throw err;
+      });
+      
+      // Race the two promises
+      Promise.race([sendPromise, timeoutPromise])
         .then(onComplete)
-        .catch((err) => this.displayError(data, cache, err));
+        .catch((err) => {
+          // Use the original error if available, otherwise use the caught error
+          const error = originalError || err;
+          
+          // Check specifically for DM errors
+          const isDMError = error.message && (
+            error.message.includes('Cannot send messages to this user') ||
+            error.message.includes('Cannot send messages to this user (timeout)') ||
+            (error.code && error.code === 50007)
+          );
+          
+          if (isDMError) {
+            this.displayError(data, cache, "Send Message: Cannot send messages to this user. They may have DMs disabled or have blocked the bot.");
+          } else {
+            this.displayError(data, cache, error);
+          }
+          
+          // Execute "If Message Failed" branch on error
+          if (data.branch) {
+            this.executeResults(true, data.branch, cache);
+          } else {
+            this.callNextAction(cache);
+          }
+        });
     }
 
     else {
-      this.callNextAction(cache);
+      // No valid sending method found for the target
+      this.displayError(data, cache, "Send Message: Target has no valid sending method.");
+      // Execute "If Message Failed" branch when there's no valid sending method
+      if (data.branch) {
+        this.executeResults(true, data.branch, cache);
+      } else {
+        this.callNextAction(cache);
+      }
     }
   },
 
@@ -974,6 +1108,8 @@ module.exports = {
         this.prepareActions(select.actions);
       }
     }
+    this.prepareActions(data.branch?.iftrueActions);
+    this.prepareActions(data.branch?.iffalseActions);
   },
 
   //---------------------------------------------------------------------
@@ -1010,5 +1146,22 @@ module.exports = {
       // Call the original function
       return originalPreformActionsFromInteraction.call(this, interaction, interactionData, meta, initialTempVars);
     };
+  },
+
+  //---------------------------------------------------------------------
+  // Action Editor Pre-Init Code
+  //
+  // Before the fields from existing data in this action are applied
+  // to the user interface, this function is called if it exists.
+  // The existing data is provided, and a modified version can be
+  // returned. The returned version will be used if provided.
+  // This is to help provide compatibility with older versions of the action.
+  //
+  // The "formatters" argument contains built-in functions for formatting
+  // the data required for official DBM action compatibility.
+  //---------------------------------------------------------------------
+
+  preInit(data, formatters) {
+    return formatters.compatibility_2_0_0_iftruefalse_to_branch(data);
   },
 };
