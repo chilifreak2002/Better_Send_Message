@@ -1,3 +1,7 @@
+IMPORTANT!!!
+bot.js MUST be replaced with your original bot.js if you want the send message action to work properly.
+
+
 Send Message has been updated with a few cool features!
 - If Message Failed | This action was once used in an old version of DBM but later removed after an update. This isn't a complete copy of the original but has been recreated by me.
 - Persistent (Command Author Only) | This feature allows you to choose whether a persistent button or select menu option should only be persistent to the command author and no one else. This helps save time adding actions to check if the button user is command author.
